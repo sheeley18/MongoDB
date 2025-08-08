@@ -21,3 +21,5 @@ terraform init
 terraform plan    
 terraform apply
 
+
+Licensing: https://www.mongodb.com/legal/licensing/community-edition
