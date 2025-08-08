@@ -1,0 +1,96 @@
+name: Terraform AWS CI/CD (Local Backend)
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  terraform:
+    name: Terraform Plan and Apply
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+          
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          
+      - name: Terraform Init
+        run: terraform init
+        
+      - name: Terraform Validate
+        run: terraform validate
+        
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+        
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        
+      - name: Upload Plan Artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plan
+          path: tfplan
+          
+      - name: Comment PR with Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            try {
+              const planOutput = execSync('terraform show -no-color tfplan', { encoding: 'utf8' });
+              const comment = `## Terraform Plan
+              
+              <details>
+              <summary>Show Plan</summary>
+              
+              \`\`\`
+              ${planOutput}
+              \`\`\`
+              
+              </details>`;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            } catch (error) {
+              console.error('Failed to generate plan comment:', error);
+            }
+            
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve tfplan
+        
+      - name: Output Results
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "## Deployment Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "**Public IP:** $(terraform output -raw PublicIP)" >> $GITHUB_STEP_SUMMARY
+          echo "**Instance DNS:** $(terraform output -raw instance_dns)" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Bucket:** $(terraform output -raw bucket_name)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### MongoDB Connection" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "mongosh mongodb://$(terraform output -raw PublicIP):27017" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
