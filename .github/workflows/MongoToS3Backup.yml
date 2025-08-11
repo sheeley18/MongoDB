@@ -44,19 +44,19 @@ jobs:
         
         # Validate we got values
         if [ "$EC2_IP" = "None" ] || [ -z "$EC2_IP" ]; then
-          echo "ERROR: Could not find running EC2 instance with tag Name=TASKY_MONGODB"
+          echo "❌ ERROR: Could not find running EC2 instance with tag Name=TASKY_MONGODB"
           aws ec2 describe-instances --filters "Name=tag:Name,Values=TASKY_MONGODB" --query 'Reservations[].Instances[].[InstanceId,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table
           exit 1
         fi
         
         if [ -z "$S3_BUCKET" ]; then
-          echo "ERROR: Could not find S3 bucket starting with 'tasky-mongo-bucket'"
+          echo "❌ ERROR: Could not find S3 bucket starting with 'tasky-mongo-bucket'"
           aws s3api list-buckets --query 'Buckets[].Name' --output table
           exit 1
         fi
         
-        echo "EC2 IP: $EC2_IP"
-        echo "S3 Bucket: $S3_BUCKET"
+        echo "✅ EC2 IP: $EC2_IP"
+        echo "✅ S3 Bucket: $S3_BUCKET"
         
         echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
         echo "S3_BUCKET=$S3_BUCKET" >> $GITHUB_ENV
@@ -77,12 +77,44 @@ jobs:
         echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2_key.pem
         chmod 600 ~/.ssh/ec2_key.pem
         
-        # Add EC2 host to known hosts to avoid interactive prompt
-        ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+        # Debug: Check key file was created and has content
+        echo "Checking SSH key file..."
+        ls -la ~/.ssh/ec2_key.pem
+        echo "Key file size: $(wc -c < ~/.ssh/ec2_key.pem) bytes"
+        echo "Key file starts with: $(head -1 ~/.ssh/ec2_key.pem)"
+        echo "Key file ends with: $(tail -1 ~/.ssh/ec2_key.pem)"
         
-        # Test SSH connection
-        echo "Testing SSH connection..."
-        ssh -i ~/.ssh/ec2_key.pem -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "echo 'SSH connection successful'"
+        # Add EC2 host to known hosts to avoid interactive prompt
+        echo "Adding EC2 host to known hosts..."
+        ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null || {
+          echo "Warning: ssh-keyscan failed, trying without known_hosts check"
+        }
+        
+        # Test SSH connection with verbose output
+        echo "Testing SSH connection with verbose output..."
+        ssh -v -i ~/.ssh/ec2_key.pem -o ConnectTimeout=30 -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} "echo 'SSH connection successful'" || {
+          echo "SSH connection failed. Trying alternative connection methods..."
+          
+          # Try without strict host checking
+          ssh -i ~/.ssh/ec2_key.pem -o ConnectTimeout=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ubuntu@${{ env.EC2_IP }} "echo 'SSH connection successful (no strict checking)'" || {
+            echo "All SSH connection attempts failed"
+            echo "Debugging information:"
+            echo "EC2 IP: ${{ env.EC2_IP }}"
+            
+            # Test basic connectivity
+            echo "Testing basic connectivity to EC2..."
+            ping -c 3 ${{ env.EC2_IP }} || echo "Ping failed"
+            
+            # Test if SSH port is open
+            echo "Testing SSH port..."
+            nc -zv ${{ env.EC2_IP }} 22 || echo "SSH port test failed"
+            
+            exit 1
+          }
+        }
+        
+        # If we get here, SSH is working
+        echo "✅ SSH connection established successfully!"
         
         # Get timestamp for backup
         TIMESTAMP=$(date +%Y%m%d-%H%M%S)
@@ -90,7 +122,7 @@ jobs:
         
         # Run backup commands on EC2 instance
         echo "Creating MongoDB backup on EC2 instance..."
-        ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ env.EC2_IP }} << EOF
+        ssh -i ~/.ssh/ec2_key.pem -o StrictHostKeyChecking=no ubuntu@${{ env.EC2_IP }} << EOF
           set -e  # Exit on any error
           
           echo "Starting backup process on EC2..."
@@ -134,12 +166,12 @@ jobs:
           echo "Cleaning up local backup files..."
           rm -rf "mongodb-backup-\$TIMESTAMP" "tasky-backup-\$TIMESTAMP.tar.gz"
           
-          echo "Backup completed successfully!"
-          echo "Compressed backup: s3://\$S3_BUCKET/mongodb-backups/tasky-backup-\$TIMESTAMP.tar.gz"
-          echo "Raw dump: s3://\$S3_BUCKET/mongodb-backups/dump-\$TIMESTAMP/"
+          echo "✅ Backup completed successfully!"
+          echo "📦 Compressed backup: s3://\$S3_BUCKET/mongodb-backups/tasky-backup-\$TIMESTAMP.tar.gz"
+          echo "📁 Raw dump: s3://\$S3_BUCKET/mongodb-backups/dump-\$TIMESTAMP/"
         EOF
         
-        echo "Remote backup process completed successfully!"
+        echo "✅ Remote backup process completed successfully!"
         
     - name: Verify Backup Completion
       run: |
@@ -149,9 +181,9 @@ jobs:
         # Check for today's backup
         BACKUP_COUNT=$(aws s3 ls s3://${{ env.S3_BUCKET }}/mongodb-backups/ | grep $(date +%Y%m%d) | wc -l)
         if [ $BACKUP_COUNT -gt 0 ]; then
-          echo "Backup completed successfully!"
-          echo "Found $BACKUP_COUNT backup files for today in S3"
+          echo "✅ Backup completed successfully!"
+          echo "📦 Found $BACKUP_COUNT backup files for today in S3"
         else
-          echo "No backup files found for today"
+          echo "❌ No backup files found for today"
           exit 1
         fi
