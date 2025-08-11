@@ -34,9 +34,29 @@ jobs:
         
     - name: Get Infrastructure Details
       run: |
+        # Try Terraform outputs first, fall back to AWS queries
         terraform init
-        echo "EC2_IP=$(terraform output -raw PublicIP)" >> $GITHUB_ENV
-        echo "S3_BUCKET=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
+        
+        if terraform output PublicIP > /dev/null 2>&1; then
+          echo "EC2_IP=$(terraform output -raw PublicIP)" >> $GITHUB_ENV
+          echo "S3_BUCKET=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
+        else
+          echo "Terraform outputs null, querying AWS directly..."
+          
+          # Get EC2 IP from AWS
+          EC2_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=TASKY_MONGODB" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+          
+          # Get S3 bucket from AWS
+          S3_BUCKET=$(aws s3 ls | grep tasky-mongo-bucket | awk '{print $3}')
+          echo "S3_BUCKET=$S3_BUCKET" >> $GITHUB_ENV
+        fi
+        
+        echo "Using EC2 IP: $EC2_IP"
+        echo "Using S3 Bucket: $S3_BUCKET"
         
     - name: Install MongoDB Tools
       run: |
