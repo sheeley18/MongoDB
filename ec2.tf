@@ -60,35 +60,105 @@ resource "aws_instance" "terraform_instance" {
   iam_instance_profile   = aws_iam_instance_profile.ec2_s3_profile.name
   
   #user_data script to install and enable mongodb
+  #user_data script to install and enable mongodb
   user_data = <<-EOF
             #!/bin/bash
             set -e 
+            
+            # Log everything for debugging
+            exec > >(tee /var/log/user-data.log) 2>&1
+            echo "Starting MongoDB installation script..."
+            
             # Update base Packages
             sudo apt-get update -y
-            sudo apt-get install -y gnupg curl awscli
+            sudo apt-get install -y gnupg curl awscli ca-certificates lsb-release
             
-            # Variables - Using fixed Ubuntu codename
+            # Variables
             MONGO_VERSION="7.0"
             UBUNTU_CODENAME="jammy"
             GPG_KEY_PATH="/usr/share/keyrings/mongodb-server-$${MONGO_VERSION}.gpg"
             
-            # Add Mongo GPG Key
-            curl -fsSL "https://pgp.mongodb.com/server-$${MONGO_VERSION}.asc" | sudo gpg --dearmor -o "$$GPG_KEY_PATH"
+            # Remove any existing broken repositories
+            sudo rm -f /etc/apt/sources.list.d/mongodb-org-*.list
             
-            # Add Mongo Repo with fixed codename
-            echo "deb [ arch=amd64,arm64 signed-by=$${GPG_KEY_PATH} ] https://repo.mongodb.org/apt/ubuntu $${UBUNTU_CODENAME}/mongodb-org/$${MONGO_VERSION} multiverse" | sudo tee "/etc/apt/sources.list.d/mongodb-org-$${MONGO_VERSION}.list"
+            # Import MongoDB GPG key with retries and verification
+            echo "Importing MongoDB GPG key..."
+            for i in {1..3}; do
+              if wget -qO- https://pgp.mongodb.com/server-$${MONGO_VERSION}.asc | sudo gpg --dearmor -o "$$GPG_KEY_PATH"; then
+                echo "GPG key imported successfully"
+                break
+              else
+                echo "GPG key import attempt $$i failed, retrying..."
+                sleep 5
+              fi
+            done
             
-            # Install Mongo
+            # Verify GPG key was created and has content
+            if [ ! -s "$$GPG_KEY_PATH" ]; then
+              echo "ERROR: GPG key file is missing or empty"
+              exit 1
+            fi
+            
+            # Set proper permissions on GPG key
+            sudo chmod 644 "$$GPG_KEY_PATH"
+            
+            # Add MongoDB repository
+            echo "Adding MongoDB repository..."
+            echo "deb [ arch=amd64,arm64 signed-by=$${GPG_KEY_PATH} ] https://repo.mongodb.org/apt/ubuntu $${UBUNTU_CODENAME}/mongodb-org/$${MONGO_VERSION} multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-$${MONGO_VERSION}.list
+            
+            # Update package lists
+            echo "Updating package lists..."
             sudo apt-get update -y
-            sudo apt-get install -y mongodb-org
-  
+            
+            # Install MongoDB with retries
+            echo "Installing MongoDB..."
+            for i in {1..3}; do
+              if sudo apt-get install -y mongodb-org; then
+                echo "MongoDB installed successfully"
+                break
+              else
+                echo "MongoDB installation attempt $$i failed, retrying..."
+                sudo apt-get update -y
+                sleep 10
+              fi
+            done
+            
+            # Verify MongoDB was installed
+            if ! command -v mongod &> /dev/null; then
+              echo "ERROR: MongoDB installation failed"
+              exit 1
+            fi
+            
             # Configure MongoDB for external access
+            echo "Configuring MongoDB..."
+            sudo cp /etc/mongod.conf /etc/mongod.conf.backup
             sudo sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
             
-            # Start and Enable for Reboot
-            sudo systemctl start mongod
+            # Start and enable MongoDB
+            echo "Starting MongoDB service..."
+            sudo systemctl daemon-reload
             sudo systemctl enable mongod
+            sudo systemctl start mongod
+            
+            # Wait for MongoDB to start and verify
+            echo "Waiting for MongoDB to start..."
+            sleep 10
+            
+            # Check MongoDB status
+            if sudo systemctl is-active --quiet mongod; then
+              echo "SUCCESS: MongoDB is running!"
+              sudo systemctl status mongod --no-pager
+            else
+              echo "ERROR: MongoDB failed to start"
+              sudo systemctl status mongod --no-pager
+              sudo journalctl -u mongod --no-pager -n 20
+              exit 1
+            fi
+            
+            echo "MongoDB installation and configuration completed successfully!"
+            date
             EOF
+
   tags = {
     Name = "TASKY_MONGODB"
     Environment = "Lab"
@@ -152,6 +222,7 @@ output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 
 }
+
 
 
 
