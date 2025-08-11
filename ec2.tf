@@ -71,7 +71,7 @@ date
 
 # Update base packages
 sudo apt-get update -y
-sudo apt-get install -y curl gnupg lsb-release ca-certificates
+sudo apt-get install -y curl gnupg lsb-release ca-certificates awscli
 
 # Clean up any existing MongoDB repositories
 sudo rm -f /etc/apt/sources.list.d/mongodb-org-*.list
@@ -218,3 +218,4 @@ output "bucket_name" {
 output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 }
+
