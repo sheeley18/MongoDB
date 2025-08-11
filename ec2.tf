@@ -66,30 +66,29 @@ resource "aws_instance" "terraform_instance" {
             # Update base Packages
             sudo apt-get update -y
             sudo apt-get install -y gnupg curl awscli
-          
+            
             # Variables - Using fixed Ubuntu codename
             MONGO_VERSION="7.0"
             UBUNTU_CODENAME="jammy"
             GPG_KEY_PATH="/usr/share/keyrings/mongodb-server-$${MONGO_VERSION}.gpg"
-          
+            
             # Add Mongo GPG Key
             curl -fsSL "https://pgp.mongodb.com/server-$${MONGO_VERSION}.asc" | sudo gpg --dearmor -o "$$GPG_KEY_PATH"
-          
+            
             # Add Mongo Repo with fixed codename
             echo "deb [ arch=amd64,arm64 signed-by=$${GPG_KEY_PATH} ] https://repo.mongodb.org/apt/ubuntu $${UBUNTU_CODENAME}/mongodb-org/$${MONGO_VERSION} multiverse" | sudo tee "/etc/apt/sources.list.d/mongodb-org-$${MONGO_VERSION}.list"
-          
+            
             # Install Mongo
             sudo apt-get update -y
             sudo apt-get install -y mongodb-org
-
+  
             # Configure MongoDB for external access
             sudo sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
-          
+            
             # Start and Enable for Reboot
             sudo systemctl start mongod
             sudo systemctl enable mongod
             EOF
-  
   tags = {
     Name = "TASKY_MONGODB"
     Environment = "Lab"
@@ -153,6 +152,7 @@ output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 
 }
+
 
 
 
