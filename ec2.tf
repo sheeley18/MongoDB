@@ -39,6 +39,13 @@ resource "aws_iam_role_policy" "s3_access" {
           "s3:ListBucket"
         ]
         Resource = aws_s3_bucket.tasky_mongo_bucket.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListAllMyBuckets"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -71,7 +78,7 @@ date
 
 # Update base packages
 sudo apt-get update -y
-sudo apt-get install -y curl gnupg lsb-release ca-certificates awscli
+sudo apt-get install -y curl gnupg lsb-release ca-certificates
 
 # Clean up any existing MongoDB repositories
 sudo rm -f /etc/apt/sources.list.d/mongodb-org-*.list
@@ -218,4 +225,3 @@ output "bucket_name" {
 output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 }
-
