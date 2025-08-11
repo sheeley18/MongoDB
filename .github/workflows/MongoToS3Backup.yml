@@ -27,36 +27,39 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
         
-    - name: Set up Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: latest
-        
     - name: Get Infrastructure Details
       run: |
-        # Try Terraform outputs first, fall back to AWS queries
-        terraform init
+        echo "Getting infrastructure details from AWS..."
         
-        if terraform output PublicIP > /dev/null 2>&1; then
-          echo "EC2_IP=$(terraform output -raw PublicIP)" >> $GITHUB_ENV
-          echo "S3_BUCKET=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
-        else
-          echo "Terraform outputs null, querying AWS directly..."
-          
-          # Get EC2 IP from AWS
-          EC2_IP=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Values=TASKY_MONGODB" "Name=instance-state-name,Values=running" \
-            --query 'Reservations[0].Instances[0].PublicIpAddress' \
-            --output text)
-          echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
-          
-          # Get S3 bucket from AWS
-          S3_BUCKET=$(aws s3 ls | grep tasky-mongo-bucket | awk '{print $3}')
-          echo "S3_BUCKET=$S3_BUCKET" >> $GITHUB_ENV
+        # Get EC2 IP directly from AWS
+        EC2_IP=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=TASKY_MONGODB" "Name=instance-state-name,Values=running" \
+          --query 'Reservations[0].Instances[0].PublicIpAddress' \
+          --output text)
+        
+        # Get S3 bucket directly from AWS  
+        S3_BUCKET=$(aws s3api list-buckets \
+          --query 'Buckets[?starts_with(Name, `tasky-mongo-bucket`)].Name' \
+          --output text)
+        
+        # Validate we got values
+        if [ "$EC2_IP" = "None" ] || [ -z "$EC2_IP" ]; then
+          echo "ERROR: Could not find running EC2 instance with tag Name=TASKY_MONGODB"
+          aws ec2 describe-instances --filters "Name=tag:Name,Values=TASKY_MONGODB" --query 'Reservations[].Instances[].[InstanceId,State.Name,Tags[?Key==`Name`].Value|[0]]' --output table
+          exit 1
         fi
         
-        echo "Using EC2 IP: $EC2_IP"
-        echo "Using S3 Bucket: $S3_BUCKET"
+        if [ -z "$S3_BUCKET" ]; then
+          echo "ERROR: Could not find S3 bucket starting with 'tasky-mongo-bucket'"
+          aws s3api list-buckets --query 'Buckets[].Name' --output table
+          exit 1
+        fi
+        
+        echo "EC2 IP: $EC2_IP"
+        echo "S3 Bucket: $S3_BUCKET"
+        
+        echo "EC2_IP=$EC2_IP" >> $GITHUB_ENV
+        echo "S3_BUCKET=$S3_BUCKET" >> $GITHUB_ENV
         
     - name: Install MongoDB Tools
       run: |
