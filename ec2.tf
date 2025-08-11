@@ -1,9 +1,3 @@
-# Create key pair if it doesn't exist
-resource "aws_key_pair" "tasky_key" {
-  key_name   = "TASKY"
-  public_key = file("~/.ssh/id_rsa.pub")  # Path to your public key
-}
-
 # Make sure there's never S3 Bucket naming conflicts
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -156,4 +150,5 @@ output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 
 }
+
 
