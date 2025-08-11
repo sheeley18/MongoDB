@@ -91,8 +91,11 @@ resource "aws_instance" "terraform_instance" {
              EOF
   
   tags = {
-    Name = "TASKY_APP"
+    Name = "TASKY_MONGODB"
+    Environment = "Lab"
+    Purpose = "MongoDB Database Server"
   }
+
 }
 
 # Create the Bucket with unique naming
@@ -150,5 +153,6 @@ output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
 
 }
+
 
 
