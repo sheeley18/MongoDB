@@ -1,13 +1,3 @@
-# Set up Provider and pin the version
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
 # Make sure there's never S3 Bucket naming conflicts
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -158,4 +148,5 @@ output "bucket_name" {
 # Output DNS on Startup  
 output "instance_dns" {
   value = aws_instance.terraform_instance.public_dns
+
 }
