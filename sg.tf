@@ -12,13 +12,13 @@ resource "aws_security_group" "terraform_sg" {
 # SSH access rule
 resource "aws_vpc_security_group_ingress_rule" "allow_ssh_ipv4" {  
   security_group_id = aws_security_group.terraform_sg.id  
-  cidr_ipv4         = "0.0.0.0/0"  
+  cidr_ipv4         = "73.234.1.227/32"  # Your IP only, not 0.0.0.0/0
   from_port         = 22
   ip_protocol       = "tcp"
   to_port           = 22
   
   tags = {
-    Name = "SSH_Access"
+    Name = "SSH_Access_MyIP"
   }
 }
 
@@ -64,3 +64,4 @@ output "security_group_id" {
   description = "ID of the security group"
   value       = aws_security_group.terraform_sg.id
 }
+
