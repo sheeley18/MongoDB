@@ -22,20 +22,20 @@ resource "aws_vpc_security_group_ingress_rule" "allow_ssh_ipv4" {
   }
 }
 
-# MongoDB access rule - CHANGED: Allow access from anywhere for demo (consider restricting in production)
-resource "aws_vpc_security_group_ingress_rule" "allow_mongo_all_ips" {
+# MongoDB access rule - SECURED: Only allow access from your IP
+resource "aws_vpc_security_group_ingress_rule" "allow_mongo_my_ip" {
   security_group_id = aws_security_group.terraform_sg.id
-  cidr_ipv4         = "0.0.0.0/0"  # WARNING: Open to internet - restrict in production
+  cidr_ipv4         = "73.234.1.227/32"  # Your home network IP
   from_port         = 27017
   ip_protocol       = "tcp"
   to_port           = 27017
   
   tags = {
-    Name = "MongoDB_Access_Demo"
+    Name = "MongoDB_Access_MyIP"
   }
 }
 
-# OPTIONAL: MongoDB access from within VPC (more secure than external access)
+# OPTIONAL: MongoDB access from within VPC (keep for internal access)
 resource "aws_vpc_security_group_ingress_rule" "allow_mongo_vpc" {
   security_group_id = aws_security_group.terraform_sg.id
   cidr_ipv4         = "192.168.0.0/16"  # VPC CIDR block
