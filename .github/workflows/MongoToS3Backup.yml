@@ -1,0 +1,74 @@
+name: MongoDB Backup to S3
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+  
+  # Automatic daily backup at midnight UTC
+  schedule:
+    - cron: '0 0 * * *'
+    
+  # Alternative: Midnight Eastern Time (4 AM UTC in summer, 5 AM UTC in winter)
+  # schedule:
+  #   - cron: '0 4 * * *'  # Use this for EST/EDT midnight
+
+jobs:
+  backup-mongodb:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+        
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: latest
+        
+    - name: Get Infrastructure Details
+      run: |
+        terraform init
+        echo "EC2_IP=$(terraform output -raw PublicIP)" >> $GITHUB_ENV
+        echo "S3_BUCKET=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
+        
+    - name: Install MongoDB Tools
+      run: |
+        curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo apt-key add -
+        echo "deb https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+        sudo apt-get update
+        sudo apt-get install -y mongodb-org-tools
+        
+    - name: Create MongoDB Dump
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+        
+        # Create dump directory
+        mkdir -p ./mongodb-backup
+        
+        # Create MongoDB dump (remote connection)
+        mongodump --host ${{ env.EC2_IP }}:27017 --db tasky --out ./mongodb-backup/dump-$TIMESTAMP
+        
+        # Compress the dump
+        tar -czf tasky-backup-$TIMESTAMP.tar.gz -C ./mongodb-backup dump-$TIMESTAMP
+        
+    - name: Upload to S3
+      run: |
+        # Upload compressed backup
+        aws s3 cp tasky-backup-${{ env.TIMESTAMP }}.tar.gz s3://${{ env.S3_BUCKET }}/mongodb-backups/
+        
+        # Upload raw dump for easy restore
+        aws s3 cp ./mongodb-backup/dump-${{ env.TIMESTAMP }} s3://${{ env.S3_BUCKET }}/mongodb-backups/dump-${{ env.TIMESTAMP }} --recursive
+        
+    - name: Verify Upload
+      run: |
+        echo "Backup completed successfully!"
+        echo "Compressed backup: s3://${{ env.S3_BUCKET }}/mongodb-backups/tasky-backup-${{ env.TIMESTAMP }}.tar.gz"
+        aws s3 ls s3://${{ env.S3_BUCKET }}/mongodb-backups/ --human-readable
