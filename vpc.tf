@@ -128,11 +128,6 @@ output "subnet_id" {
   value       = aws_subnet.public_subnet_1.id
 }
 
-output "security_group_id" {
-  description = "ID of the security group (for EC2 instance)"
-  value       = aws_security_group.terraform_sg.id
-}
-
 # Additional useful outputs
 output "public_subnet_ids" {
   description = "List of all public subnet IDs"
@@ -150,4 +145,5 @@ output "private_subnet_ids" {
     aws_subnet.private_subnet_2.id,
     aws_subnet.private_subnet_3.id
   ]
+
 }
