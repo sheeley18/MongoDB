@@ -68,30 +68,90 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y mongodb-org-tools
         
-    - name: Create MongoDB Dump
+    - name: Create MongoDB Backup via SSH
       run: |
+        echo "Setting up secure SSH connection to EC2..."
+        
+        # Create SSH directory and key file
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/ec2_key.pem
+        chmod 600 ~/.ssh/ec2_key.pem
+        
+        # Add EC2 host to known hosts to avoid interactive prompt
+        ssh-keyscan -H ${{ env.EC2_IP }} >> ~/.ssh/known_hosts 2>/dev/null
+        
+        # Test SSH connection
+        echo "Testing SSH connection..."
+        ssh -i ~/.ssh/ec2_key.pem -o ConnectTimeout=10 ubuntu@${{ env.EC2_IP }} "echo 'SSH connection successful'"
+        
+        # Get timestamp for backup
         TIMESTAMP=$(date +%Y%m%d-%H%M%S)
         echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
         
-        # Create dump directory
-        mkdir -p ./mongodb-backup
+        # Run backup commands on EC2 instance
+        echo "Creating MongoDB backup on EC2 instance..."
+        ssh -i ~/.ssh/ec2_key.pem ubuntu@${{ env.EC2_IP }} << EOF
+          set -e  # Exit on any error
+          
+          echo "Starting backup process on EC2..."
+          TIMESTAMP=$TIMESTAMP
+          BACKUP_DIR="/tmp/mongodb-backup-\$TIMESTAMP"
+          
+          # Create MongoDB dump locally (no network restrictions)
+          echo "Creating MongoDB dump..."
+          mongodump --host localhost:27017 --db tasky --out "\$BACKUP_DIR"
+          
+          # Verify dump was created
+          if [ ! -d "\$BACKUP_DIR/tasky" ]; then
+            echo "ERROR: MongoDB dump failed"
+            exit 1
+          fi
+          
+          echo "MongoDB dump created successfully"
+          ls -la "\$BACKUP_DIR/tasky/"
+          
+          # Compress the dump
+          echo "Compressing backup..."
+          cd /tmp
+          tar -czf "tasky-backup-\$TIMESTAMP.tar.gz" "mongodb-backup-\$TIMESTAMP/"
+          
+          # Get S3 bucket name (EC2 has IAM permissions)
+          S3_BUCKET=\$(aws s3 ls | grep tasky-mongo-bucket | awk '{print \$3}')
+          echo "Using S3 bucket: \$S3_BUCKET"
+          
+          # Upload to S3 (EC2 has proper IAM permissions)
+          echo "Uploading compressed backup to S3..."
+          aws s3 cp "tasky-backup-\$TIMESTAMP.tar.gz" "s3://\$S3_BUCKET/mongodb-backups/"
+          
+          echo "Uploading raw dump to S3..."
+          aws s3 cp "mongodb-backup-\$TIMESTAMP" "s3://\$S3_BUCKET/mongodb-backups/dump-\$TIMESTAMP" --recursive
+          
+          # Verify uploads
+          echo "Verifying S3 uploads..."
+          aws s3 ls "s3://\$S3_BUCKET/mongodb-backups/" | grep "\$TIMESTAMP"
+          
+          # Clean up local files
+          echo "Cleaning up local backup files..."
+          rm -rf "mongodb-backup-\$TIMESTAMP" "tasky-backup-\$TIMESTAMP.tar.gz"
+          
+          echo "Backup completed successfully!"
+          echo "Compressed backup: s3://\$S3_BUCKET/mongodb-backups/tasky-backup-\$TIMESTAMP.tar.gz"
+          echo "Raw dump: s3://\$S3_BUCKET/mongodb-backups/dump-\$TIMESTAMP/"
+        EOF
         
-        # Create MongoDB dump (remote connection)
-        mongodump --host ${{ env.EC2_IP }}:27017 --db tasky --out ./mongodb-backup/dump-$TIMESTAMP
+        echo "Remote backup process completed successfully!"
         
-        # Compress the dump
-        tar -czf tasky-backup-$TIMESTAMP.tar.gz -C ./mongodb-backup dump-$TIMESTAMP
-        
-    - name: Upload to S3
+    - name: Verify Backup Completion
       run: |
-        # Upload compressed backup
-        aws s3 cp tasky-backup-${{ env.TIMESTAMP }}.tar.gz s3://${{ env.S3_BUCKET }}/mongodb-backups/
-        
-        # Upload raw dump for easy restore
-        aws s3 cp ./mongodb-backup/dump-${{ env.TIMESTAMP }} s3://${{ env.S3_BUCKET }}/mongodb-backups/dump-${{ env.TIMESTAMP }} --recursive
-        
-    - name: Verify Upload
-      run: |
-        echo "Backup completed successfully!"
-        echo "Compressed backup: s3://${{ env.S3_BUCKET }}/mongodb-backups/tasky-backup-${{ env.TIMESTAMP }}.tar.gz"
+        echo "Verifying backup was uploaded to S3..."
         aws s3 ls s3://${{ env.S3_BUCKET }}/mongodb-backups/ --human-readable
+        
+        # Check for today's backup
+        BACKUP_COUNT=$(aws s3 ls s3://${{ env.S3_BUCKET }}/mongodb-backups/ | grep $(date +%Y%m%d) | wc -l)
+        if [ $BACKUP_COUNT -gt 0 ]; then
+          echo "Backup completed successfully!"
+          echo "Found $BACKUP_COUNT backup files for today in S3"
+        else
+          echo "No backup files found for today"
+          exit 1
+        fi
