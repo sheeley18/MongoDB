@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-echo "🔒 Securing MongoDB Installation..."
+echo "Securing MongoDB Installation..."
 
 if ! systemctl is-active --quiet mongod; then
     echo "MongoDB is not running. Starting it..."
@@ -92,7 +92,7 @@ EOF
     sudo systemctl restart mongod
     sleep 15
 else
-    echo "ℹAuthentication already enabled"
+    echo "Authentication already enabled"
 fi
 
 echo "Testing authentication..."
@@ -104,4 +104,4 @@ else
     exit 1
 fi
 
-echo "🎉 MongoDB security setup complete!"
+echo "MongoDB security setup complete!"
