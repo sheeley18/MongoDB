@@ -38,9 +38,9 @@ resource "aws_secretsmanager_secret" "tasky_database_secrets" {
 resource "aws_secretsmanager_secret_version" "tasky_database_secrets" {
   secret_id = aws_secretsmanager_secret.tasky_database_secrets.id
   secret_string = jsonencode({
-    # MongoDB connection details
-    MONGODB_URI            = "mongodb://tasky_app:${random_password.mongodb_app_password.result}@${aws_instance.terraform_instance.private_ip}:27017/tasky?authSource=tasky"
-    MONGODB_HOST           = aws_instance.terraform_instance.private_ip
+    # MongoDB connection details - Updated to use PUBLIC IP for external access
+    MONGODB_URI            = "mongodb://tasky_app:${random_password.mongodb_app_password.result}@${aws_instance.terraform_instance.public_ip}:27017/tasky?authSource=tasky"
+    MONGODB_HOST           = aws_instance.terraform_instance.public_ip
     MONGODB_PORT           = "27017"
     MONGODB_DATABASE       = "tasky"
     MONGODB_USERNAME       = "tasky_app"
@@ -128,21 +128,21 @@ resource "aws_iam_instance_profile" "ec2_s3_profile" {
   role = aws_iam_role.ec2_s3_role.name
 }
 
-# MongoDB EC2 Instance
+# MongoDB EC2 Instance - MOVED TO PUBLIC SUBNET
 resource "aws_instance" "terraform_instance" {
   ami                    = var.AMIS[var.REGION]
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.private_subnet_1.id
+  subnet_id              = aws_subnet.public_subnet_1.id  # CHANGED: Now in public subnet
   key_name               = var.PUBLIC_KEY
   vpc_security_group_ids = [aws_security_group.mongodb_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_s3_profile.name
 
-  # Minimal user data - just install basics
+  # Enhanced user data for proper MongoDB setup
   user_data = base64encode(<<-EOF
     #!/bin/bash
     set -e
     exec > >(tee /var/log/user-data.log) 2>&1
-    echo "Starting basic setup..."
+    echo "Starting MongoDB setup..."
     
     # Update packages
     apt-get update -y
@@ -157,11 +157,49 @@ resource "aws_instance" "terraform_instance" {
     # Configure MongoDB for external access
     sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
     
+    # Enable authentication
+    echo "security:" >> /etc/mongod.conf
+    echo "  authorization: enabled" >> /etc/mongod.conf
+    
     # Start MongoDB
     systemctl enable mongod
     systemctl start mongod
     
-    echo "MongoDB installation completed. Ready for manual setup."
+    # Wait for MongoDB to start
+    sleep 10
+    
+    # Create admin user
+    mongosh --eval "
+    db = db.getSiblingDB('admin');
+    db.createUser({
+      user: 'admin',
+      pwd: '${random_password.mongodb_admin_password.result}',
+      roles: [
+        { role: 'userAdminAnyDatabase', db: 'admin' },
+        { role: 'readWriteAnyDatabase', db: 'admin' },
+        { role: 'dbAdminAnyDatabase', db: 'admin' },
+        { role: 'clusterAdmin', db: 'admin' }
+      ]
+    });
+    "
+    
+    # Restart MongoDB with auth enabled
+    systemctl restart mongod
+    sleep 5
+    
+    # Create application user
+    mongosh -u admin -p '${random_password.mongodb_admin_password.result}' --authenticationDatabase admin --eval "
+    db = db.getSiblingDB('tasky');
+    db.createUser({
+      user: 'tasky_app',
+      pwd: '${random_password.mongodb_app_password.result}',
+      roles: [
+        { role: 'readWrite', db: 'tasky' }
+      ]
+    });
+    "
+    
+    echo "MongoDB installation and user setup completed."
   EOF
   )
 
@@ -261,6 +299,11 @@ output "mongodb_private_ip" {
   value       = aws_instance.terraform_instance.private_ip
 }
 
+output "mongodb_public_ip" {
+  description = "Public IP of MongoDB instance (for EKS access)"
+  value       = aws_instance.terraform_instance.public_ip
+}
+
 output "bucket_name" {
   description = "Name of the S3 backup bucket"
   value       = aws_s3_bucket.tasky_mongo_bucket.bucket
@@ -269,4 +312,27 @@ output "bucket_name" {
 output "secrets_manager_arn" {
   description = "ARN of the secrets manager secret"
   value       = aws_secretsmanager_secret.tasky_database_secrets.arn
+}
+
+output "vpc_id" {
+  description = "VPC ID for EKS deployment"
+  value       = aws_vpc.mongo_vpc.id
+}
+
+output "public_subnet_ids" {
+  description = "Public subnet IDs for EKS"
+  value       = [
+    aws_subnet.public_subnet_1.id,
+    aws_subnet.public_subnet_2.id,
+    aws_subnet.public_subnet_3.id
+  ]
+}
+
+output "private_subnet_ids" {
+  description = "Private subnet IDs for EKS"
+  value       = [
+    aws_subnet.private_subnet_1.id,
+    aws_subnet.private_subnet_2.id,
+    aws_subnet.private_subnet_3.id
+  ]
 }
