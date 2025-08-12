@@ -1,10 +1,5 @@
 Example usage scenarios: 
 
-# Test with
-mongo mongodb://your-ec2-public-ip:27017
-# or
-mongosh mongodb://your-ec2-public-ip:27017
-
 To run:
 terraform init
 terraform plan    
@@ -14,7 +9,7 @@ terraform apply
 Licensing: https://www.mongodb.com/legal/licensing/community-edition
 
 Highlights:
-MongoDB in private subnet, no direct internet access.
+MongoDB 
 Security group only allows SeanH to SSH. 
 NAT Gateway provides controlled internet access for updates/backups.
 
@@ -29,3 +24,4 @@ Backup verification and monitoring.
 
 CloudWatch integration for backup monitoring.
 Encrypted S3 storage with versioning.
+
