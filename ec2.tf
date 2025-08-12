@@ -131,100 +131,100 @@ resource "aws_iam_instance_profile" "ec2_s3_profile" {
 resource "aws_instance" "terraform_instance" {
   ami                    = var.AMIS[var.REGION]
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.private_subnet_1.id  # Private subnet for security
+  subnet_id              = aws_subnet.private_subnet_1.id
   key_name               = var.PUBLIC_KEY
   vpc_security_group_ids = [aws_security_group.mongodb_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2_s3_profile.name
 
-  # Inline user data with backup system
+  # Fixed user data with proper escaping
   user_data = base64encode(<<-EOF
-#!/bin/bash
-set -e
+    #!/bin/bash
+    set -e
 
-# Log everything for debugging
-exec > >(tee /var/log/user-data.log) 2>&1
-echo "Starting MongoDB installation script..."
-date
+    # Log everything for debugging
+    exec > >(tee /var/log/user-data.log) 2>&1
+    echo "Starting MongoDB installation script..."
+    date
 
-# Update base packages
-sudo apt-get update -y
-sudo apt-get install -y curl gnupg lsb-release ca-certificates awscli jq
-
-# Clean up any existing MongoDB repositories
-sudo rm -f /etc/apt/sources.list.d/mongodb-org-*.list
-
-# Import MongoDB GPG key
-echo "Importing MongoDB GPG key..."
-if curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo apt-key add - 2>/dev/null; then
-  echo "GPG key imported via apt-key"
-else
-  echo "apt-key failed, trying alternative method..."
-  curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null || {
-    echo "GPG import failed, continuing without verification..."
-    echo "deb [trusted=yes] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-  }
-fi
-
-if [ ! -f /etc/apt/sources.list.d/mongodb-org-7.0.list ]; then
-  echo "Adding MongoDB repository..."
-  echo "deb https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-fi
-
-sudo apt-get update -y
-
-# Install MongoDB with retry logic
-echo "Installing MongoDB..."
-for i in {1..3}; do
-  if sudo apt-get install -y mongodb-org mongodb-database-tools; then
-    echo "MongoDB installed successfully on attempt $i"
-    break
-  else
-    echo "MongoDB installation attempt $i failed, retrying..."
+    # Update base packages
     sudo apt-get update -y
-    sleep 5
-  fi
-  
-  if [ $i -eq 3 ]; then
-    echo "ERROR: MongoDB installation failed after 3 attempts"
-    exit 1
-  fi
-done
+    sudo apt-get install -y curl gnupg lsb-release ca-certificates awscli jq
 
-# Verify installation
-if command -v mongod >/dev/null 2>&1; then
-  echo "MongoDB binary confirmed installed"
-  mongod --version
-else
-  echo "ERROR: MongoDB not found after installation"
-  exit 1
-fi
+    # Clean up any existing MongoDB repositories
+    sudo rm -f /etc/apt/sources.list.d/mongodb-org-*.list
 
-# Configure MongoDB
-echo "Configuring MongoDB..."
-sudo cp /etc/mongod.conf /etc/mongod.conf.backup
-sudo sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
+    # Import MongoDB GPG key
+    echo "Importing MongoDB GPG key..."
+    if curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo apt-key add - 2>/dev/null; then
+      echo "GPG key imported via apt-key"
+    else
+      echo "apt-key failed, trying alternative method..."
+      curl -fsSL https://pgp.mongodb.com/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null || {
+        echo "GPG import failed, continuing without verification..."
+        echo "deb [trusted=yes] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+      }
+    fi
 
-# Start and enable MongoDB
-echo "Starting MongoDB..."
-sudo systemctl daemon-reload
-sudo systemctl enable mongod
-sudo systemctl start mongod
+    if [ ! -f /etc/apt/sources.list.d/mongodb-org-7.0.list ]; then
+      echo "Adding MongoDB repository..."
+      echo "deb https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+    fi
 
-sleep 10
-if sudo systemctl is-active --quiet mongod; then
-  echo "SUCCESS: MongoDB is running!"
-  sudo systemctl status mongod --no-pager
-else
-  echo "MongoDB service failed to start"
-  sudo systemctl status mongod --no-pager
-  exit 1
-fi
+    sudo apt-get update -y
 
-# Create backup scripts
-echo "📦 Setting up backup system..."
+    # Install MongoDB with retry logic
+    echo "Installing MongoDB..."
+    for i in {1..3}; do
+      if sudo apt-get install -y mongodb-org mongodb-database-tools; then
+        echo "MongoDB installed successfully on attempt $i"
+        break
+      else
+        echo "MongoDB installation attempt $i failed, retrying..."
+        sudo apt-get update -y
+        sleep 5
+      fi
+      
+      if [ $i -eq 3 ]; then
+        echo "ERROR: MongoDB installation failed after 3 attempts"
+        exit 1
+      fi
+    done
 
-# Create backup script
-cat > /home/ubuntu/backup-mongodb.sh << 'BACKUP_SCRIPT_EOF'
+    # Verify installation
+    if command -v mongod >/dev/null 2>&1; then
+      echo "MongoDB binary confirmed installed"
+      mongod --version
+    else
+      echo "ERROR: MongoDB not found after installation"
+      exit 1
+    fi
+
+    # Configure MongoDB
+    echo "Configuring MongoDB..."
+    sudo cp /etc/mongod.conf /etc/mongod.conf.backup
+    sudo sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
+
+    # Start and enable MongoDB
+    echo "Starting MongoDB..."
+    sudo systemctl daemon-reload
+    sudo systemctl enable mongod
+    sudo systemctl start mongod
+
+    sleep 10
+    if sudo systemctl is-active --quiet mongod; then
+      echo "SUCCESS: MongoDB is running!"
+      sudo systemctl status mongod --no-pager
+    else
+      echo "MongoDB service failed to start"
+      sudo systemctl status mongod --no-pager
+      exit 1
+    fi
+
+    # Create backup scripts
+    echo "Setting up backup system..."
+
+    # Create backup script
+    cat > /home/ubuntu/backup-mongodb.sh << 'BACKUP_SCRIPT_EOF'
 #!/bin/bash
 # MongoDB backup script with S3 integration
 
@@ -282,7 +282,7 @@ test_connection() {
 
 # Create backup
 perform_backup() {
-    log "🗄Starting MongoDB backup..."
+    log "Starting MongoDB backup..."
     
     mkdir -p "$BACKUP_DIR"
     BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
@@ -326,7 +326,7 @@ upload_to_s3() {
 
 # Clean up old backups
 cleanup_old_backups() {
-    log "🧹 Cleaning up old backups..."
+    log "Cleaning up old backups..."
     
     # Remove local files
     rm -rf "$BACKUP_DIR"
@@ -340,7 +340,7 @@ cleanup_old_backups() {
         --output text | while read -r key; do
         if [[ -n "$key" && "$key" != "None" ]]; then
             aws s3 rm "s3://$S3_BUCKET/$key"
-            log "🗑️ Deleted old backup: $key"
+            log "Deleted old backup: $key"
         fi
     done
 }
@@ -360,7 +360,7 @@ send_notification() {
 
 # Main backup process
 main() {
-    log "🚀 Starting MongoDB backup process..."
+    log "Starting MongoDB backup process..."
     START_TIME=$$(date +%s)
     
     get_mongodb_credentials
@@ -394,12 +394,12 @@ case "$${1:-}" in
 esac
 BACKUP_SCRIPT_EOF
 
-# Create setup script for cron
-cat > /home/ubuntu/setup-backup-cron.sh << 'CRON_SCRIPT_EOF'
+    # Create setup script for cron
+    cat > /home/ubuntu/setup-backup-cron.sh << 'CRON_SCRIPT_EOF'
 #!/bin/bash
 set -euo pipefail
 
-echo "Setting up automated MongoDB backups..."
+echo "⏰ Setting up automated MongoDB backups..."
 
 # Make backup script executable
 chmod +x /home/ubuntu/backup-mongodb.sh
@@ -415,7 +415,7 @@ if ! crontab -l 2>/dev/null | grep -q "backup-mongodb.sh"; then
     (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
     echo "Cron job added: Daily backup at midnight UTC"
 else
-    echo "Cron job already exists"
+    echo "ℹCron job already exists"
 fi
 
 # Ensure cron service is running
@@ -435,8 +435,8 @@ echo "Retention: 30 days in S3, then moved to Glacier, deleted after 1 year"
 echo "Check logs: tail -f /var/log/mongodb-backup.log"
 CRON_SCRIPT_EOF
 
-# Create auth setup script
-cat > /home/ubuntu/setup-mongodb-auth.sh << 'AUTH_SCRIPT_EOF'
+    # Create auth setup script
+    cat > /home/ubuntu/setup-mongodb-auth.sh << 'AUTH_SCRIPT_EOF'
 #!/bin/bash
 set -euo pipefail
 
@@ -473,7 +473,7 @@ try {
   print('Admin user created successfully')
 } catch(e) {
   if (e.message.includes('already exists')) {
-    print('ℹ️ Admin user already exists')
+    print('Admin user already exists')
   } else {
     throw e
   }
@@ -501,7 +501,7 @@ try {
 }
 "
 
-echo "🔧 Enabling authentication in MongoDB..."
+echo "Enabling authentication in MongoDB..."
 
 # Backup config if not already backed up
 if [[ ! -f /etc/mongod.conf.backup ]]; then
@@ -510,7 +510,7 @@ fi
 
 # Check if authentication is already enabled
 if ! grep -q "authorization: enabled" /etc/mongod.conf; then
-    sudo tee -a /etc/mongod.conf > /dev/null <<EOF
+    sudo tee -a /etc/mongod.conf > /dev/null << 'AUTH_CONFIG_EOF'
 
 # Security Configuration
 security:
@@ -523,7 +523,7 @@ systemLog:
   path: /var/log/mongodb/mongod.log
   quiet: false
   logRotate: reopen
-EOF
+AUTH_CONFIG_EOF
 
     echo "Restarting MongoDB..."
     sudo systemctl restart mongod
@@ -537,40 +537,40 @@ if mongosh -u admin -p "$ADMIN_PASSWORD" --authenticationDatabase admin --eval "
     echo "Authentication working correctly!"
     echo "Connection URI: mongodb://tasky_app:***@$$(hostname -I | awk '{print $$1}'):27017/tasky?authSource=tasky"
 else
-    echo "Authentication test failed!"
+    echo "Authentication test failed."
     exit 1
 fi
 
-echo "MongoDB security setup complete!"
+echo "MongoDB security setup complete."
 AUTH_SCRIPT_EOF
 
-# Make all scripts executable and set ownership
-chmod +x /home/ubuntu/*.sh
-chown ubuntu:ubuntu /home/ubuntu/*.sh
+    # Make all scripts executable and set ownership
+    chmod +x /home/ubuntu/*.sh
+    chown ubuntu:ubuntu /home/ubuntu/*.sh
 
-# Create log directory for MongoDB
-sudo mkdir -p /var/log/mongodb
-sudo chown mongodb:mongodb /var/log/mongodb
+    # Create log directory for MongoDB
+    sudo mkdir -p /var/log/mongodb
+    sudo chown mongodb:mongodb /var/log/mongodb
 
-# Wait for MongoDB to be fully ready
-sleep 30
+    # Wait for MongoDB to be fully ready
+    sleep 30
 
-echo "MongoDB installation with backup system completed!"
-echo "Next steps:"
-echo "  1. Run: sudo -u ubuntu /home/ubuntu/setup-mongodb-auth.sh"
-echo "  2. Run: sudo -u ubuntu /home/ubuntu/setup-backup-cron.sh"
-echo "Available scripts:"
-echo "  - backup-mongodb.sh: Manual backup (also --test, --list)"
-echo "  - setup-backup-cron.sh: Setup automated backups"
-echo "  - setup-mongodb-auth.sh: Setup MongoDB authentication"
-EOF
+    echo "✅ MongoDB installation with backup system completed!"
+    echo "🔧 Next steps:"
+    echo "  1. Run: sudo -u ubuntu /home/ubuntu/setup-mongodb-auth.sh"
+    echo "  2. Run: sudo -u ubuntu /home/ubuntu/setup-backup-cron.sh"
+    echo "📋 Available scripts:"
+    echo "  - backup-mongodb.sh: Manual backup (also --test, --list)"
+    echo "  - setup-backup-cron.sh: Setup automated backups"
+    echo "  - setup-mongodb-auth.sh: Setup MongoDB authentication"
+  EOF
   )
 
   tags = {
     Name        = "TASKY_MONGODB"
     Environment = "Production"
     Purpose     = "MongoDB Database Server"
-    Version     = "v3"  # Updated version for backup system
+    Version     = "v3"
   }
 }
 
