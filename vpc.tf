@@ -116,34 +116,3 @@ resource "aws_route_table_association" "public_subnet_3c" {
   subnet_id      = aws_subnet.public_subnet_3.id
   route_table_id = aws_route_table.public_RT.id
 }
-
-# ADDED: Outputs needed by main configuration
-output "vpc_id" {
-  description = "ID of the VPC"
-  value       = aws_vpc.mongo_vpc.id  
-}
-
-output "subnet_id" {
-  description = "ID of the first public subnet (for EC2 instance)"
-  value       = aws_subnet.public_subnet_1.id
-}
-
-# Additional useful outputs
-output "public_subnet_ids" {
-  description = "List of all public subnet IDs"
-  value = [
-    aws_subnet.public_subnet_1.id,
-    aws_subnet.public_subnet_2.id,
-    aws_subnet.public_subnet_3.id
-  ]
-}
-
-output "private_subnet_ids" {
-  description = "List of all private subnet IDs"
-  value = [
-    aws_subnet.private_subnet_1.id,
-    aws_subnet.private_subnet_2.id,
-    aws_subnet.private_subnet_3.id
-  ]
-
-}
