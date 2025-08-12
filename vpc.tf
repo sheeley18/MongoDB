@@ -87,6 +87,29 @@ resource "aws_internet_gateway" "IGW" {
   }
 }
 
+# Elastic IP for NAT Gateway
+resource "aws_eip" "nat_eip" {
+  domain = "vpc"
+  
+  tags = {
+    Name = "NAT_EIP"
+  }
+  
+  depends_on = [aws_internet_gateway.IGW]
+}
+
+# NAT Gateway in public subnet
+resource "aws_nat_gateway" "nat_gw" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.public_subnet_1.id
+  
+  tags = {
+    Name = "NAT_Gateway"
+  }
+  
+  depends_on = [aws_internet_gateway.IGW]
+}
+
 # Public Route Table
 resource "aws_route_table" "public_RT" {
   vpc_id = aws_vpc.mongo_vpc.id  
@@ -98,6 +121,20 @@ resource "aws_route_table" "public_RT" {
   
   tags = {
     Name = "Public_RT_Tasky"  
+  }
+}
+
+# Private Route Table with NAT Gateway
+resource "aws_route_table" "private_RT" {
+  vpc_id = aws_vpc.mongo_vpc.id
+  
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_gw.id
+  }
+  
+  tags = {
+    Name = "Private_RT_Tasky"
   }
 }
 
@@ -115,4 +152,20 @@ resource "aws_route_table_association" "public_subnet_2b" {
 resource "aws_route_table_association" "public_subnet_3c" {
   subnet_id      = aws_subnet.public_subnet_3.id
   route_table_id = aws_route_table.public_RT.id
+}
+
+# Route Table Associations for Private Subnets
+resource "aws_route_table_association" "private_subnet_1a" {
+  subnet_id      = aws_subnet.private_subnet_1.id
+  route_table_id = aws_route_table.private_RT.id
+}
+
+resource "aws_route_table_association" "private_subnet_2b" {
+  subnet_id      = aws_subnet.private_subnet_2.id
+  route_table_id = aws_route_table.private_RT.id
+}
+
+resource "aws_route_table_association" "private_subnet_3c" {
+  subnet_id      = aws_subnet.private_subnet_3.id
+  route_table_id = aws_route_table.private_RT.id
 }
