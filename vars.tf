@@ -83,10 +83,11 @@ variable "instance_type" {
 variable "admin_ip" {
   description = "Admin IP address for SSH access"
   type        = string
-  default     = "YOUR_CURRENT_IP/32"  # GET FROM: curl ifconfig.me
+  default     = "73.234.1.227/32"  # GET FROM: curl ifconfig.me
   
   validation {
     condition = can(cidrhost(var.admin_ip, 0))
     error_message = "Admin IP must be a valid CIDR block."
   }
 }
+
