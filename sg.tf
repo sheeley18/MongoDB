@@ -1,7 +1,7 @@
 # Security Group for MongoDB EC2 instance
 resource "aws_security_group" "mongodb_sg" { 
   name        = "mongodb_secure_sg"
-  description = "Security group for MongoDB - allows SSH and VPC access only"
+  description = "Security group for MongoDB - SSH and VPC access only"
   vpc_id      = aws_vpc.mongo_vpc.id   
   
   tags = {
@@ -9,7 +9,7 @@ resource "aws_security_group" "mongodb_sg" {
   }
 }
 
-# SSH access rule - ONLY from admin IP
+
 resource "aws_vpc_security_group_ingress_rule" "allow_ssh_admin" {  
   security_group_id = aws_security_group.mongodb_sg.id  
   cidr_ipv4         = var.admin_ip
@@ -46,8 +46,8 @@ resource "aws_vpc_security_group_egress_rule" "allow_all_outbound" {
   }
 }
 
-# Output security group ID for EKS repo to reference
-output "mongodb_security_group_id" {
-  description = "Security group ID for MongoDB instance"
+
+output "security_group_id" {
+  description = "ID of the MongoDB security group"
   value       = aws_security_group.mongodb_sg.id
 }
