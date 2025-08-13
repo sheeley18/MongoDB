@@ -1,13 +1,3 @@
-Example usage scenarios: 
-
-To run:
-terraform init
-terraform plan    
-terraform apply
-
-
-Licensing: https://www.mongodb.com/legal/licensing/community-edition
-
 Highlights:
 MongoDB 
 Security group only allows SeanH to SSH. 
@@ -25,3 +15,7 @@ Backup verification and monitoring.
 CloudWatch integration for backup monitoring.
 Encrypted S3 storage with versioning.
 
+
+
+
+Licensing: https://www.mongodb.com/legal/licensing/community-edition
