@@ -55,7 +55,7 @@ resource "aws_iam_role" "github_actions_eks" {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:sheeley18/infrastructure-eks:*"
+          "token.actions.githubusercontent.com:sub" = "repo:sheeley18/tasky-eks-cluster:*"
         }
       }
     }]
