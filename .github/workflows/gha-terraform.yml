@@ -1,12 +1,12 @@
-name: Terraform AWS CI/CD (Local Backend)
+name: EKS Terraform CI/CD
 
 on:
   push:
     branches:
-      - '**'
+      - '**'  
   pull_request:
     branches:
-      - '**'
+      - '**'  
 
 jobs:
   terraform:
@@ -29,22 +29,22 @@ jobs:
         with:
           terraform_version: latest
           
+      - name: Terraform Format Check
+        run: terraform fmt -check
+        continue-on-error: true
+        
       - name: Terraform Init
         run: terraform init
         
       - name: Terraform Validate
         run: terraform validate
         
-      - name: Terraform Format Check
-        run: terraform fmt 
-        continue-on-error: true
-        
       - name: Terraform Plan
         run: terraform plan -out=tfplan
         
       - name: Upload Plan Artifact
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
           path: tfplan
@@ -57,7 +57,7 @@ jobs:
             const { execSync } = require('child_process');
             try {
               const planOutput = execSync('terraform show -no-color tfplan', { encoding: 'utf8' });
-              const comment = `## Terraform Plan
+              const comment = `## EKS Terraform Plan
               
               <details>
               <summary>Show Plan</summary>
@@ -82,15 +82,46 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve tfplan
         
-      - name: Output Results
+      - name: Capture Important Outputs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          echo "## Deployment Outputs" >> $GITHUB_STEP_SUMMARY
-          echo "**Public IP:** $(terraform output -raw PublicIP)" >> $GITHUB_STEP_SUMMARY
-          echo "**Instance DNS:** $(terraform output -raw instance_dns)" >> $GITHUB_STEP_SUMMARY
-          echo "**S3 Bucket:** $(terraform output -raw bucket_name)" >> $GITHUB_STEP_SUMMARY
+          echo "## EKS Deployment Complete! 🎉" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### MongoDB Connection" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "mongosh mongodb://$(terraform output -raw PublicIP):27017" >> $GITHUB_STEP_SUMMARY
+          echo "### Cluster Information" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster Name:** \`$(terraform output -raw cluster_name)\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster Endpoint:** \`$(terraform output -raw cluster_endpoint)\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** \`$(terraform output -raw region)\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔑 Important for Tasky Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "**Secrets Manager Role ARN:**" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "$(terraform output -raw eks_secrets_manager_role_arn)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Configure kubectl:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "aws eks update-kubeconfig --name $(terraform output -raw cluster_name)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Update service-account.yaml in Tasky repo with the Role ARN above**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Deploy Tasky application**" >> $GITHUB_STEP_SUMMARY
+          
+      - name: Save Outputs for Later Use
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          mkdir -p outputs
+          terraform output -json > outputs/terraform-outputs.json
+          echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> outputs/cluster-info.env
+          echo "ROLE_ARN=$(terraform output -raw eks_secrets_manager_role_arn)" >> outputs/cluster-info.env
+          echo "CLUSTER_ENDPOINT=$(terraform output -raw cluster_endpoint)" >> outputs/cluster-info.env
+          echo "VPC_PEERING_ID=$(terraform output -raw vpc_peering_connection_id)" >> outputs/cluster-info.env
+          
+      - name: Upload Deployment Outputs
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eks-deployment-outputs
+          path: outputs/
+          retention-days: 30
